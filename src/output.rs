@@ -204,6 +204,54 @@ pub fn print_files_human(root: &Path, result: &ScanResult, elapsed: Duration) {
 }
 
 #[derive(Serialize)]
+struct FindReport<'a> {
+    path: &'a str,
+    matches: usize,
+    /// Total size of all matches (including ones beyond the display limit).
+    total_size: u64,
+    errors: u64,
+    duration_ms: u128,
+    found: &'a [crate::scan::FoundDir],
+}
+
+pub fn print_find_json(
+    root: &Path,
+    result: &ScanResult,
+    elapsed: Duration,
+    top: usize,
+) -> Result<()> {
+    let shown = &result.found[..result.found.len().min(top)];
+    let report = FindReport {
+        path: &root.display().to_string(),
+        matches: result.found.len(),
+        total_size: result.found.iter().map(|d| d.size).sum(),
+        errors: result.errors,
+        duration_ms: elapsed.as_millis(),
+        found: shown,
+    };
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+pub fn print_find_human(root: &Path, result: &ScanResult, elapsed: Duration, top: usize) {
+    let total: u64 = result.found.iter().map(|d| d.size).sum();
+    println!(
+        "{}  {} match{}, {} total  (scanned in {:.2}s)",
+        root.display(),
+        result.found.len(),
+        if result.found.len() == 1 { "" } else { "es" },
+        human_size(total),
+        elapsed.as_secs_f64()
+    );
+    for dir in result.found.iter().take(top) {
+        println!("{:>9}  {}", human_size(dir.size), dir.path.display());
+    }
+    if result.found.len() > top {
+        println!("… {} more (raise -n to show)", result.found.len() - top);
+    }
+}
+
+#[derive(Serialize)]
 struct DeleteEntry {
     path: PathBuf,
     size: u64,
@@ -289,6 +337,7 @@ fn measure(path: &Path) -> u64 {
         let scanner = crate::scan::Scanner::new(crate::scan::ScanOptions {
             exclude: Vec::new(),
             top_files: 0,
+            find: Vec::new(),
         });
         scanner.scan(path).root.size
     } else {

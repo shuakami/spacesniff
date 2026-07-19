@@ -30,6 +30,7 @@ cargo install spacesniff  # or build from source
 ```bash
 spacesniff C:\            # where did the space go? (tree, depth 3, top 10/level)
 spacesniff scan ~/code --json -d 2 -n 5 --min-size 50MB
+spacesniff find ~/code node_modules target .venv   # every dir with that name + size, sorted
 spacesniff files ~/Downloads -n 25       # largest individual files
 spacesniff scan . --exclude .git         # skip directories by name
 spacesniff delete node_modules target    # dry-run: shows reclaimable bytes

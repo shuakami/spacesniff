@@ -54,6 +54,24 @@ enum Command {
         #[arg(long)]
         threads: Option<usize>,
     },
+    /// Find every directory with a given name (e.g. all node_modules) and its size
+    Find {
+        /// Path to scan
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+        /// Directory names to match exactly (e.g. node_modules target dist)
+        #[arg(value_name = "NAMES", required = true)]
+        names: Vec<String>,
+        /// Number of matches to show
+        #[arg(short = 'n', long, default_value_t = 50)]
+        top: usize,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// Number of scanner threads (default: all cores)
+        #[arg(long)]
+        threads: Option<usize>,
+    },
     /// Print the compact usage protocol for AI agents (start here)
     Agent,
     /// Delete paths and report reclaimed space (dry-run unless --force)
@@ -107,6 +125,13 @@ fn main() -> Result<()> {
             json,
             threads,
         }) => run_files(path, top, json, threads),
+        Some(Command::Find {
+            path,
+            names,
+            top,
+            json,
+            threads,
+        }) => run_find(path, names, top, json, threads),
         Some(Command::Agent) => {
             print!("{}", AGENT_PROTOCOL);
             Ok(())
@@ -128,12 +153,16 @@ Loop:
    - tree: children sorted by size desc, max --depth levels, --top per level
    - "other" = folded children; sizes always add up to the parent
 2. spacesniff scan <root>/<biggest-subdir> --json   # drill down (fast, re-run freely)
-3. spacesniff files <root> --json -n 25   # largest individual files
-4. Decide what is safe to delete. YOU own this judgment; typical candidates are
+3. spacesniff find <root> node_modules target .venv --json
+   # every dir with one of those names + its size, sorted desc — the fast way to
+   # answer "how much would deleting all node_modules reclaim". Never re-implement
+   # this with your own recursive directory walk; find is a single parallel scan.
+4. spacesniff files <root> --json -n 25   # largest individual files
+5. Decide what is safe to delete. YOU own this judgment; typical candidates are
    rebuildable artifacts (node_modules, target, .venv, caches, old installers).
-5. spacesniff delete <paths...> --json    # DRY-RUN: per-path size + total "reclaimed"
-6. Confirm with the user if the data is not trivially rebuildable.
-7. spacesniff delete <paths...> --force --json      # execute; per-path deleted|error
+6. spacesniff delete <paths...> --json    # DRY-RUN: per-path size + total "reclaimed"
+7. Confirm with the user if the data is not trivially rebuildable.
+8. spacesniff delete <paths...> --force --json      # execute; per-path deleted|error
 
 Rules:
 - delete NEVER removes anything without --force.
@@ -165,6 +194,7 @@ fn run_scan(path: PathBuf, args: ScanArgs) -> Result<()> {
     let scanner = Scanner::new(ScanOptions {
         exclude: args.exclude.clone(),
         top_files: 0,
+        find: Vec::new(),
     });
     let result = scanner.scan(&root);
     let elapsed = started.elapsed();
@@ -183,6 +213,7 @@ fn run_files(path: PathBuf, top: usize, json: bool, threads: Option<usize>) -> R
     let scanner = Scanner::new(ScanOptions {
         exclude: Vec::new(),
         top_files: top,
+        find: Vec::new(),
     });
     let result = scanner.scan(&root);
     let elapsed = started.elapsed();
@@ -190,6 +221,31 @@ fn run_files(path: PathBuf, top: usize, json: bool, threads: Option<usize>) -> R
         output::print_files_json(&root, &result, elapsed)?;
     } else {
         output::print_files_human(&root, &result, elapsed);
+    }
+    Ok(())
+}
+
+fn run_find(
+    path: PathBuf,
+    names: Vec<String>,
+    top: usize,
+    json: bool,
+    threads: Option<usize>,
+) -> Result<()> {
+    init_threads(threads);
+    let root = canonical(&path)?;
+    let started = Instant::now();
+    let scanner = Scanner::new(ScanOptions {
+        exclude: Vec::new(),
+        top_files: 0,
+        find: names,
+    });
+    let result = scanner.scan(&root);
+    let elapsed = started.elapsed();
+    if json {
+        output::print_find_json(&root, &result, elapsed, top)?;
+    } else {
+        output::print_find_human(&root, &result, elapsed, top);
     }
     Ok(())
 }

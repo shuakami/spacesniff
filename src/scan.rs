@@ -25,11 +25,20 @@ pub struct FileEntry {
     pub size: u64,
 }
 
+/// A directory matched by name during a `find` scan.
+#[derive(Serialize, Clone)]
+pub struct FoundDir {
+    pub path: PathBuf,
+    pub size: u64,
+    pub files: u64,
+}
+
 pub struct ScanResult {
     pub root: DirNode,
     pub dirs: u64,
     pub errors: u64,
     pub top_files: Vec<FileEntry>,
+    pub found: Vec<FoundDir>,
 }
 
 pub struct ScanOptions {
@@ -37,6 +46,9 @@ pub struct ScanOptions {
     pub exclude: Vec<String>,
     /// Keep this many largest files (0 = don't track files).
     pub top_files: usize,
+    /// Directory names to report as matches (outermost match wins;
+    /// matches nested inside another match are not reported separately).
+    pub find: Vec<String>,
 }
 
 pub struct Scanner {
@@ -44,6 +56,7 @@ pub struct Scanner {
     dirs: AtomicU64,
     errors: AtomicU64,
     heap: Mutex<BinaryHeap<Reverse<(u64, PathBuf)>>>,
+    found: Mutex<Vec<FoundDir>>,
     /// Fast-path filter: smallest size currently in a full heap.
     heap_floor: AtomicU64,
     /// Directories currently being scanned as parallel tasks. Fanning every
@@ -101,6 +114,7 @@ impl Scanner {
             dirs: AtomicU64::new(0),
             errors: AtomicU64::new(0),
             heap: Mutex::new(BinaryHeap::new()),
+            found: Mutex::new(Vec::new()),
             heap_floor: AtomicU64::new(0),
             inflight: AtomicUsize::new(0),
             max_inflight: AtomicUsize::new(rayon::current_num_threads() * 4),
@@ -120,7 +134,7 @@ impl Scanner {
 
     pub fn scan(&self, root: &Path) -> ScanResult {
         let name = root.display().to_string();
-        let node = self.scan_dir(root, name);
+        let node = self.scan_dir(root, name, true);
         let mut top_files: Vec<FileEntry> = self
             .heap
             .lock()
@@ -132,15 +146,18 @@ impl Scanner {
             })
             .collect();
         top_files.sort_by_key(|f| Reverse(f.size));
+        let mut found = std::mem::take(&mut *self.found.lock().unwrap());
+        found.sort_by_key(|d| Reverse(d.size));
         ScanResult {
             root: node,
             dirs: self.dirs.load(Ordering::Relaxed),
             errors: self.errors.load(Ordering::Relaxed),
             top_files,
+            found,
         }
     }
 
-    fn scan_dir(&self, path: &Path, name: String) -> DirNode {
+    fn scan_dir(&self, path: &Path, name: String, report_matches: bool) -> DirNode {
         let dirs = self.dirs.fetch_add(1, Ordering::Relaxed) + 1;
         if dirs.is_multiple_of(TUNE_WINDOW) {
             if let Ok(mut tuner) = self.tuner.try_lock() {
@@ -206,6 +223,18 @@ impl Scanner {
             // Symlinks and other special entries are intentionally not followed.
         }
 
+        let scan_child = |child_path: &Path, child_name: String| {
+            let is_match = report_matches && self.opts.find.iter().any(|f| f == &child_name);
+            let node = self.scan_dir(child_path, child_name, report_matches && !is_match);
+            if is_match {
+                self.found.lock().unwrap().push(FoundDir {
+                    path: child_path.to_path_buf(),
+                    size: node.size,
+                    files: node.files,
+                });
+            }
+            node
+        };
         let fork = subdirs.len() > 1
             && self.inflight.load(Ordering::Relaxed) + subdirs.len()
                 <= self.max_inflight.load(Ordering::Relaxed);
@@ -213,14 +242,14 @@ impl Scanner {
             self.inflight.fetch_add(subdirs.len(), Ordering::Relaxed);
             let children = subdirs
                 .par_iter()
-                .map(|(child_path, child_name)| self.scan_dir(child_path, child_name.clone()))
+                .map(|(child_path, child_name)| scan_child(child_path, child_name.clone()))
                 .collect();
             self.inflight.fetch_sub(subdirs.len(), Ordering::Relaxed);
             children
         } else {
             subdirs
                 .into_iter()
-                .map(|(child_path, child_name)| self.scan_dir(&child_path, child_name))
+                .map(|(child_path, child_name)| scan_child(&child_path, child_name))
                 .collect()
         };
         children.sort_by_key(|c| Reverse(c.size));
