@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build --release
+      - name: Smoke test
+        shell: bash
+        run: |
+          BIN=target/release/spacesniff
+          [[ "${{ matrix.os }}" == windows-* ]] && BIN=$BIN.exe
+          $BIN . --json -d 2 | head -50
+          $BIN files . -n 5
+          $BIN delete target --json | head -20

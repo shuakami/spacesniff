@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>spacesniff banner</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:transparent; }
+  body { font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  .banner { position:relative; width:1600px; height:640px; overflow:hidden; }
+  .frame {
+    position:absolute; inset:0; border-radius:12px; overflow:hidden;
+    border:1px solid rgba(24,24,27,0.10); background:#ffffff;
+  }
+  #shader { position:absolute; inset:0; }
+  .center {
+    position:absolute; inset:0; z-index:2;
+    display:flex; align-items:center; justify-content:center; gap:72px;
+  }
+  .sniffer { display:flex; align-items:center; justify-content:center; }
+  .sniffer img { width:160px; height:160px; }
+  .x {
+    font-size:56px; color:#a1a1aa; font-weight:300; user-select:none;
+    font-family: Inter, system-ui, sans-serif;
+  }
+  .agents { display:grid; grid-template-columns:repeat(3, 96px); gap:48px 56px; }
+  .agent { display:flex; align-items:center; justify-content:center; }
+  .agent img { width:88px; height:88px; }
+</style>
+</head>
+<body>
+<div class="banner">
+  <div class="frame">
+    <div id="shader"></div>
+    <div class="center">
+      <div class="sniffer"><img src="{{SNIFFER_ICON}}" /></div>
+      <div class="x">&times;</div>
+      <div class="agents">{{AGENTS}}</div>
+    </div>
+  </div>
+</div>
+<script type="module">
+  var m = await import('{{SHADER_URL}}');
+  var s = m.defaultObjectSizing;
+  var host = document.getElementById('shader');
+  var tex = m.getShaderNoiseTexture();
+  if (tex && !(tex.complete && tex.naturalWidth)) {
+    await new Promise(function(r){ tex.onload = r; tex.onerror = r; });
+  }
+  new m.ShaderMount(host, m.grainGradientFragmentShader, {
+    u_colorBack: m.getShaderColorFromString('#00000000'),
+    u_colors: ['#fbfcfe', '#f3f5f9', '#e9edf4'].map(m.getShaderColorFromString),
+    u_colorsCount: 3,
+    u_softness: 1, u_intensity: 0.25, u_noise: 0.35,
+    u_shape: m.GrainGradientShapes.corners,
+    u_noiseTexture: tex,
+    u_fit: m.ShaderFitOptions[s.fit], u_scale: 3.2, u_rotation: 60,
+    u_offsetX: s.offsetX, u_offsetY: s.offsetY,
+    u_originX: s.originX, u_originY: s.originY,
+    u_worldWidth: s.worldWidth, u_worldHeight: s.worldHeight
+  }, undefined, 2.7, 0, 1, 1920 * 1080);
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ window.__shaderReady = true; }); });
+</script>
+</body>
+</html>
