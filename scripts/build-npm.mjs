@@ -21,6 +21,7 @@ const mainPkg = JSON.parse(
   fs.readFileSync(path.join(root, "npm/spacesniff/package.json"), "utf8")
 );
 const version = mainPkg.version;
+const generated = [];
 
 for (const platformId of fs.readdirSync(binDir)) {
   const [os, cpu] = platformId.split("-");
@@ -38,7 +39,7 @@ for (const platformId of fs.readdirSync(binDir)) {
     path.join(pkgDir, "package.json"),
     JSON.stringify(
       {
-        name: `spacesniff-${platformId}`,
+        name: `@cialloagent/spacesniff-${platformId}`,
         version,
         description: `spacesniff prebuilt binary for ${platformId}`,
         license: "MIT",
@@ -51,4 +52,14 @@ for (const platformId of fs.readdirSync(binDir)) {
     ) + "\n"
   );
   console.log(`generated npm/spacesniff-${platformId}`);
+  generated.push(platformId);
 }
+
+// Point the main package's optionalDependencies at the packages actually generated.
+mainPkg.optionalDependencies = Object.fromEntries(
+  generated.sort().map((p) => [`@cialloagent/spacesniff-${p}`, version])
+);
+fs.writeFileSync(
+  path.join(root, "npm/spacesniff/package.json"),
+  JSON.stringify(mainPkg, null, 2) + "\n"
+);

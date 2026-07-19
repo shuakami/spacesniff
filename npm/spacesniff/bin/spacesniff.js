@@ -5,7 +5,7 @@
 const { spawnSync } = require("child_process");
 const path = require("path");
 
-const pkg = `spacesniff-${process.platform}-${process.arch}`;
+const pkg = `@cialloagent/spacesniff-${process.platform}-${process.arch}`;
 const exe = process.platform === "win32" ? "spacesniff.exe" : "spacesniff";
 
 let binary;

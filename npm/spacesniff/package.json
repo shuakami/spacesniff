@@ -1,13 +1,21 @@
 {
   "name": "spacesniff",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agent-first disk space analyzer: blazing-fast parallel scans with compact, machine-readable output",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zhanxiong-cognition/test-repo.git"
+    "url": "git+https://github.com/shuakami/spacesniff.git"
   },
-  "keywords": ["disk", "du", "disk-usage", "cli", "agent", "space", "cleanup"],
+  "keywords": [
+    "disk",
+    "du",
+    "disk-usage",
+    "cli",
+    "agent",
+    "space",
+    "cleanup"
+  ],
   "bin": {
     "spacesniff": "bin/spacesniff.js"
   },
@@ -15,11 +23,6 @@
     "node": ">=16"
   },
   "optionalDependencies": {
-    "spacesniff-win32-x64": "0.1.0",
-    "spacesniff-win32-arm64": "0.1.0",
-    "spacesniff-linux-x64": "0.1.0",
-    "spacesniff-linux-arm64": "0.1.0",
-    "spacesniff-darwin-x64": "0.1.0",
-    "spacesniff-darwin-arm64": "0.1.0"
+    "@cialloagent/spacesniff-win32-x64": "0.1.1"
   }
 }
