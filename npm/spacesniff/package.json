@@ -1,6 +1,6 @@
 {
   "name": "spacesniff",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Agent-first disk space analyzer: blazing-fast parallel scans with compact, machine-readable output",
   "license": "MIT",
   "repository": {
@@ -23,6 +23,6 @@
     "node": ">=16"
   },
   "optionalDependencies": {
-    "@cialloagent/spacesniff-win32-x64": "0.1.6"
+    "@cialloagent/spacesniff-win32-x64": "0.1.7"
   }
 }

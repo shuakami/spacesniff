@@ -177,9 +177,10 @@ Rules:
 - All sizes are bytes (apparent size) — an ESTIMATE. Actual freed disk space can
   be lower (NTFS compression, hardlinks, sparse files); check free space to verify.
 - duration_ms tells you how cheap re-scans are.
-- Running via npx? npm's cache is NOT safe for concurrent cold starts. Either
-  `npm i -g spacesniff` first, or run one npx call to completion before issuing
-  parallel commands.
+- Running via npx? Use `npx -y --loglevel=error spacesniff ...` so npm's own
+  notices never pollute captured output. npm's cache is NOT safe for concurrent
+  cold starts: `npm i -g spacesniff` first, or run one npx call to completion
+  before issuing parallel commands.
 - Useful flags: --depth N, --top N, --min-size 100MB, --exclude NAME, --threads N.
 "#;
 

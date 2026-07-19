@@ -11,7 +11,7 @@ Your agent scans, drills down, decides what is safe to remove, verifies with a d
 Tell your agent (Claude Code, Cursor, Devin, Copilot, Windsurf, ...):
 
 ```
-My disk is full. Run `npx -y spacesniff agent` to learn the tool, then find out
+My disk is full. Run `npx -y --loglevel=error spacesniff agent` to learn the tool, then find out
 where the space went and clean it up. Ask me before deleting anything.
 ```
 
