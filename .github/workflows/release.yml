@@ -78,5 +78,9 @@ jobs:
           for pkg in npm/spacesniff-*-*; do
             (cd "$pkg" && npm publish --access public)
           done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish main package
         run: cd npm/spacesniff && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
