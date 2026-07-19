@@ -254,8 +254,15 @@ pub fn print_find_human(root: &Path, result: &ScanResult, elapsed: Duration, top
 #[derive(Serialize)]
 struct DeleteEntry {
     path: PathBuf,
+    /// Apparent size (estimate; actual filesystem space freed can be lower).
     size: u64,
     deleted: bool,
+    /// Bytes actually removed (force mode; equals `size` on full success).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deleted_bytes: Option<u64>,
+    /// Items skipped because they could not be removed (locked, no access).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failed_items: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -267,33 +274,105 @@ struct DeleteReport {
     entries: Vec<DeleteEntry>,
 }
 
+/// Best-effort recursive delete: skips entries that cannot be removed
+/// (locked or access denied) and keeps deleting everything else.
+struct DeleteOutcome {
+    deleted_bytes: u64,
+    failed_items: u64,
+    first_error: Option<String>,
+}
+
+fn explain_io_error(e: &std::io::Error) -> String {
+    match e.raw_os_error() {
+        #[cfg(windows)]
+        Some(32) => format!("{e} [file is locked by another process]"),
+        #[cfg(windows)]
+        Some(5) => format!("{e} [access denied; may need administrator rights]"),
+        _ => e.to_string(),
+    }
+}
+
+fn best_effort_delete(path: &Path, out: &mut DeleteOutcome) {
+    let meta = match fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(e) => {
+            out.failed_items += 1;
+            out.first_error.get_or_insert(explain_io_error(&e));
+            return;
+        }
+    };
+    if meta.file_type().is_symlink() {
+        // Remove the link itself; never follow it. Windows dir links need remove_dir.
+        if fs::remove_file(path).is_err() {
+            if let Err(e) = fs::remove_dir(path) {
+                out.failed_items += 1;
+                out.first_error.get_or_insert(explain_io_error(&e));
+            }
+        }
+    } else if meta.is_dir() {
+        match fs::read_dir(path) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    best_effort_delete(&entry.path(), out);
+                }
+            }
+            Err(e) => {
+                out.failed_items += 1;
+                out.first_error.get_or_insert(explain_io_error(&e));
+                return;
+            }
+        }
+        if let Err(e) = fs::remove_dir(path) {
+            out.failed_items += 1;
+            out.first_error.get_or_insert(explain_io_error(&e));
+        }
+    } else {
+        let size = meta.len();
+        match fs::remove_file(path) {
+            Ok(()) => out.deleted_bytes += size,
+            Err(e) => {
+                out.failed_items += 1;
+                out.first_error.get_or_insert(explain_io_error(&e));
+            }
+        }
+    }
+}
+
 pub fn delete_paths(paths: &[PathBuf], force: bool, json: bool) -> Result<()> {
     let mut entries = Vec::new();
     let mut reclaimed = 0u64;
     for path in paths {
         let size = measure(path);
-        let (deleted, error) = if !force {
-            (false, None)
+        let entry = if !force {
+            DeleteEntry {
+                path: path.clone(),
+                size,
+                deleted: false,
+                deleted_bytes: None,
+                failed_items: None,
+                error: None,
+            }
         } else {
-            let res = if path.is_dir() {
-                fs::remove_dir_all(path)
-            } else {
-                fs::remove_file(path)
+            let mut out = DeleteOutcome {
+                deleted_bytes: 0,
+                failed_items: 0,
+                first_error: None,
             };
-            match res {
-                Ok(()) => (true, None),
-                Err(e) => (false, Some(e.to_string())),
+            best_effort_delete(path, &mut out);
+            reclaimed += out.deleted_bytes;
+            DeleteEntry {
+                path: path.clone(),
+                size,
+                deleted: out.failed_items == 0,
+                deleted_bytes: Some(out.deleted_bytes),
+                failed_items: Some(out.failed_items),
+                error: out.first_error,
             }
         };
-        if error.is_none() {
+        if !force {
             reclaimed += size;
         }
-        entries.push(DeleteEntry {
-            path: path.clone(),
-            size,
-            deleted,
-            error,
-        });
+        entries.push(entry);
     }
     if json {
         let report = DeleteReport {
@@ -304,10 +383,22 @@ pub fn delete_paths(paths: &[PathBuf], force: bool, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         for entry in &entries {
-            let status = match (&entry.error, entry.deleted) {
-                (Some(e), _) => format!("ERROR: {e}"),
-                (None, true) => "deleted".to_string(),
-                (None, false) => "would delete".to_string(),
+            let status = if !force {
+                "would delete".to_string()
+            } else if entry.deleted {
+                "deleted".to_string()
+            } else {
+                format!(
+                    "partial: freed {}, {} item{} left ({})",
+                    human_size(entry.deleted_bytes.unwrap_or(0)),
+                    entry.failed_items.unwrap_or(0),
+                    if entry.failed_items == Some(1) {
+                        ""
+                    } else {
+                        "s"
+                    },
+                    entry.error.as_deref().unwrap_or("unknown error")
+                )
             };
             println!(
                 "{:>9}  {}  {}",

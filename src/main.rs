@@ -162,13 +162,18 @@ Loop:
    rebuildable artifacts (node_modules, target, .venv, caches, old installers).
 6. spacesniff delete <paths...> --json    # DRY-RUN: per-path size + total "reclaimed"
 7. Confirm with the user if the data is not trivially rebuildable.
-8. spacesniff delete <paths...> --force --json      # execute; per-path deleted|error
+8. spacesniff delete <paths...> --force --json      # execute; best-effort
+   # locked/no-access items are skipped, everything else is deleted; receipt has
+   # per-path deleted_bytes + failed_items + explained error (e.g. "locked by
+   # another process", "access denied; may need administrator rights").
 
 Rules:
 - delete NEVER removes anything without --force.
 - Scans never follow symlinks/junctions and never abort on permission errors
   (unreadable dirs are counted in "errors").
-- All sizes are bytes (apparent size). duration_ms tells you how cheap re-scans are.
+- All sizes are bytes (apparent size) — an ESTIMATE. Actual freed disk space can
+  be lower (NTFS compression, hardlinks, sparse files); check free space to verify.
+- duration_ms tells you how cheap re-scans are.
 - Useful flags: --depth N, --top N, --min-size 100MB, --exclude NAME, --threads N.
 "#;
 
