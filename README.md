@@ -69,7 +69,7 @@ Every command takes `--json` and emits a stable schema. Scan:
 }
 ```
 
-## Design notes
+## notes
 
 - Sizes are apparent file sizes (sum of file lengths). Symlinks/junctions/reparse points are never followed, so a scan cannot loop and never double-counts through links.
 - Unreadable directories are counted in `errors` and skipped — a scan never aborts halfway.
