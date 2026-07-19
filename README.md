@@ -17,6 +17,12 @@ where the space went and clean it up. Ask me before deleting anything.
 
 `spacesniff agent` prints the complete usage protocol — the scan → drill-down → dry-run → delete loop, the JSON schema, and the safety rules. Any agent learns the whole tool from that one command; no docs, no MCP server, no configuration.
 
+![][feature-scan]
+
+![][feature-find]
+
+![][feature-delete]
+
 ## Install
 
 ```bash
@@ -83,5 +89,8 @@ Every command takes `--json` and emits a stable schema. Scan:
 [MIT][license-link]
 
 [image-banner]: docs/images/banner.png
+[feature-scan]: docs/images/feature-scan.png
+[feature-find]: docs/images/feature-find.png
+[feature-delete]: docs/images/feature-delete.png
 [issues-link]: https://github.com/shuakami/spacesniff/issues
 [license-link]: LICENSE
