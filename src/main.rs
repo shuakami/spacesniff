@@ -165,7 +165,10 @@ Loop:
 8. spacesniff delete <paths...> --force --json      # execute; best-effort
    # locked/no-access items are skipped, everything else is deleted; receipt has
    # per-path deleted_bytes + failed_items + explained error (e.g. "locked by
-   # another process", "access denied; may need administrator rights").
+   # another process", "access denied; may need administrator rights"), plus
+   # freed_disk = real volume free-space gain (trust this over reclaimed:
+   # hardlinks/compression make apparent sizes overestimate). Long deletes
+   # print progress to stderr every 2s; stdout JSON stays clean.
 
 Rules:
 - delete NEVER removes anything without --force.

@@ -1,6 +1,6 @@
 [package]
 name = "spacesniff"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "Agent-first disk space analyzer: blazing-fast parallel scans with compact, machine-readable output"
 license = "MIT"
@@ -19,3 +19,6 @@ anyhow = "1.0"
 lto = true
 codegen-units = 1
 strip = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

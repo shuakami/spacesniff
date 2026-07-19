@@ -270,16 +270,76 @@ struct DeleteEntry {
 #[derive(Serialize)]
 struct DeleteReport {
     dry_run: bool,
+    /// Sum of apparent sizes (dry-run) or bytes actually unlinked (force).
     reclaimed: u64,
+    /// Volume free space before/after (force only): the ground truth for how
+    /// much usable space was gained (hardlinks/compression make it differ
+    /// from `reclaimed`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    free_before: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    free_after: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    freed_disk: Option<u64>,
     entries: Vec<DeleteEntry>,
+}
+
+/// Free bytes available on the volume containing `path`.
+fn volume_free(path: &Path) -> Option<u64> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetDiskFreeSpaceExW(
+                lpDirectoryName: *const u16,
+                lpFreeBytesAvailableToCaller: *mut u64,
+                lpTotalNumberOfBytes: *mut u64,
+                lpTotalNumberOfFreeBytes: *mut u64,
+            ) -> i32;
+        }
+        let dir = if path.is_dir() { path } else { path.parent()? };
+        let wide: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+        let mut free = 0u64;
+        let mut total = 0u64;
+        let mut total_free = 0u64;
+        let ok =
+            unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, &mut total, &mut total_free) };
+        (ok != 0).then_some(free)
+    }
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        let dir = if path.is_dir() { path } else { path.parent()? };
+        let c = CString::new(dir.as_os_str().as_bytes()).ok()?;
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        let ok = unsafe { libc::statvfs(c.as_ptr(), &mut stat) };
+        (ok == 0).then(|| stat.f_bavail as u64 * stat.f_frsize as u64)
+    }
 }
 
 /// Best-effort recursive delete: skips entries that cannot be removed
 /// (locked or access denied) and keeps deleting everything else.
 struct DeleteOutcome {
     deleted_bytes: u64,
+    deleted_items: u64,
     failed_items: u64,
     first_error: Option<String>,
+    last_progress: std::time::Instant,
+}
+
+impl DeleteOutcome {
+    fn tick_progress(&mut self) {
+        if self.last_progress.elapsed().as_secs() >= 2 {
+            eprintln!(
+                "spacesniff: deleting… {} items, {} freed",
+                self.deleted_items,
+                human_size(self.deleted_bytes)
+            );
+            self.last_progress = std::time::Instant::now();
+        }
+    }
 }
 
 fn explain_io_error(e: &std::io::Error) -> String {
@@ -329,7 +389,11 @@ fn best_effort_delete(path: &Path, out: &mut DeleteOutcome) {
     } else {
         let size = meta.len();
         match fs::remove_file(path) {
-            Ok(()) => out.deleted_bytes += size,
+            Ok(()) => {
+                out.deleted_bytes += size;
+                out.deleted_items += 1;
+                out.tick_progress();
+            }
             Err(e) => {
                 out.failed_items += 1;
                 out.first_error.get_or_insert(explain_io_error(&e));
@@ -341,6 +405,11 @@ fn best_effort_delete(path: &Path, out: &mut DeleteOutcome) {
 pub fn delete_paths(paths: &[PathBuf], force: bool, json: bool) -> Result<()> {
     let mut entries = Vec::new();
     let mut reclaimed = 0u64;
+    let free_before = if force {
+        paths.first().and_then(|p| volume_free(p))
+    } else {
+        None
+    };
     for path in paths {
         let size = measure(path);
         let entry = if !force {
@@ -355,8 +424,10 @@ pub fn delete_paths(paths: &[PathBuf], force: bool, json: bool) -> Result<()> {
         } else {
             let mut out = DeleteOutcome {
                 deleted_bytes: 0,
+                deleted_items: 0,
                 failed_items: 0,
                 first_error: None,
+                last_progress: std::time::Instant::now(),
             };
             best_effort_delete(path, &mut out);
             reclaimed += out.deleted_bytes;
@@ -374,10 +445,22 @@ pub fn delete_paths(paths: &[PathBuf], force: bool, json: bool) -> Result<()> {
         }
         entries.push(entry);
     }
+    let free_after = if force {
+        paths.first().and_then(|p| volume_free(p))
+    } else {
+        None
+    };
+    let freed_disk = match (free_before, free_after) {
+        (Some(b), Some(a)) => Some(a.saturating_sub(b)),
+        _ => None,
+    };
     if json {
         let report = DeleteReport {
             dry_run: !force,
             reclaimed,
+            free_before,
+            free_after,
+            freed_disk,
             entries,
         };
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -408,7 +491,14 @@ pub fn delete_paths(paths: &[PathBuf], force: bool, json: bool) -> Result<()> {
             );
         }
         if force {
-            println!("reclaimed {}", human_size(reclaimed));
+            match freed_disk {
+                Some(freed) => println!(
+                    "reclaimed {} (disk free space grew by {})",
+                    human_size(reclaimed),
+                    human_size(freed)
+                ),
+                None => println!("reclaimed {}", human_size(reclaimed)),
+            }
         } else {
             println!(
                 "dry run: would reclaim {} (re-run with --force to delete)",
