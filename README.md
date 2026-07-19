@@ -25,6 +25,8 @@ npm i -g spacesniff
 cargo install spacesniff  # or build from source
 ```
 
+> Issuing many commands in parallel (agents love to)? Install globally first, or run one `npx` call to completion before fanning out — npm's shared `_npx` cache is not safe for concurrent cold starts (EBUSY/EPERM races inside npm itself). `spacesniff agent` includes this rule.
+
 ## Usage
 
 ```bash
